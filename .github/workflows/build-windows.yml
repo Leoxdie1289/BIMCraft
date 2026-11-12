@@ -1,0 +1,46 @@
+
+name: BIMCraft Windows RVT 1GiB
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Compilar BIMCraft Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Baixar codigo do fork
+        uses: actions/checkout@v4
+
+      - name: Configurar Rust
+        shell: pwsh
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add x86_64-pc-windows-msvc
+
+      - name: Compilar executaveis
+        shell: pwsh
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: "-C target-feature=+crt-static"
+          BIMCRAFT_KEY_SECRET: ${{ secrets.BIMCRAFT_KEY_SECRET }}
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p bimcraft -p bimcraft-cli
+
+      - name: Criar versao portatil
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          .\packaging\windows\portable.ps1 -Version $version -BinDir target\x86_64-pc-windows-msvc\release
+
+      - name: Disponibilizar download
+        uses: actions/upload-artifact@v4
+        with:
+          name: BIMCraft-Windows-RVT-1GiB
+          path: bimcraft-*-windows-x64-portable.zip
+          if-no-files-found: error
+          retention-days: 30
