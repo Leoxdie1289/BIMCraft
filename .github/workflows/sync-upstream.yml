@@ -1,0 +1,81 @@
+
+name: Atualizar BIMCraft automaticamente
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: atualizar-bimcraft-main
+  cancel-in-progress: false
+
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar meu fork
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Buscar atualizacoes originais
+        id: sync
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream \
+            https://github.com/IPedrax/BIMCraft.git
+
+          git fetch upstream main
+
+          if git merge-base --is-ancestor FETCH_HEAD HEAD; then
+            echo "Sem novas atualizacoes."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Atualizacoes encontradas."
+
+          if ! git merge --no-edit FETCH_HEAD; then
+            echo "::error::Conflito ao integrar atualizacoes."
+            git merge --abort || true
+            exit 1
+          fi
+
+          ARQUIVO="crates/rvt/src/container.rs"
+
+          if ! grep -Fq 'max_stream: 1024 << 20' "$ARQUIVO"; then
+            echo "::error::Alteracao max_stream nao encontrada."
+            exit 1
+          fi
+
+          if ! grep -Fq 'max_inflated: 8 << 30' "$ARQUIVO"; then
+            echo "::error::Alteracao max_inflated nao encontrada."
+            exit 1
+          fi
+
+          git push origin HEAD:main
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "Fork atualizado com sucesso."
+
+      - name: Compilar nova versao Windows
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run build-windows.yml --ref main
+          echo "Compilacao Windows solicitada."
